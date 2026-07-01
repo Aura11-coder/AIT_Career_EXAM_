@@ -1,32 +1,18 @@
 /**
- * ============================================================
  * AIT EXAM 2026 - API Layer
- * Google Apps Script Integration
  * File: js/api.js
- * ============================================================
  */
 
 'use strict';
 
-/* ============================================================
-   CONFIGURATION
-   Replace SCRIPT_URL with your deployed Google Apps Script URL
-   ============================================================ */
 const AIT_CONFIG = {
-  // 👇 REPLACE THIS with your deployed Google Apps Script Web App URL
   SCRIPT_URL: 'https://script.google.com/macros/s/AKfycbxkao1mQPezK_qWQzB9MN2xj1Lkfw8SA9bDfe9JNpHiwdEMzUhznTFn95EEg1Qo3XSumA/exec',
-
-  // Exam settings
-  EXAM_DURATION_MINUTES: 90,
-  TOTAL_QUESTIONS: 50,
+  EXAM_DURATION_MINUTES: 55,
+  TOTAL_QUESTIONS: 100,
   AUTOSAVE_INTERVAL_SECONDS: 30,
-
-  // Warning thresholds
   WARNING_LIMIT: 3,
-  TIMER_WARNING_MINUTES: 15,
-  TIMER_DANGER_MINUTES: 5,
-
-  // Session keys
+  TIMER_WARNING_MINUTES: 10,
+  TIMER_DANGER_MINUTES: 3,
   SESSION_KEYS: {
     CANDIDATE: 'ait_candidate',
     ANSWERS: 'ait_answers',
@@ -40,141 +26,86 @@ const AIT_CONFIG = {
   }
 };
 
-/* ============================================================
-   API METHODS
-   ============================================================ */
-
 /**
- * Generic fetch wrapper for Google Apps Script
- * @param {string} action - The action name
- * @param {Object} payload - Data payload
- * @returns {Promise<Object>}
+ * GET request — works with CORS for GAS
  */
-async function aitApiCall(action, payload = {}) {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 15000);
-
+async function aitGet(action, params = {}) {
   try {
-    const params = new URLSearchParams({ action, ...payload });
-    const response = await fetch(`${AIT_CONFIG.SCRIPT_URL}?${params.toString()}`, {
+    const qs = new URLSearchParams({ action, ...params });
+    const res = await fetch(`${AIT_CONFIG.SCRIPT_URL}?${qs.toString()}`, {
       method: 'GET',
-      signal: controller.signal,
+      mode: 'cors',
     });
-
-    clearTimeout(timeout);
-
-    if (!response.ok) {
-      throw new Error(`HTTP error: ${response.status}`);
-    }
-
-    const data = await response.json();
-    return data;
+    if (!res.ok) throw new Error('Network error');
+    return await res.json();
   } catch (err) {
-    clearTimeout(timeout);
-    if (err.name === 'AbortError') {
-      throw new Error('Request timed out. Please check your internet connection.');
-    }
-    throw err;
+    console.warn('GET error:', err);
+    return null;
   }
 }
 
 /**
- * Submit exam via POST (for large payloads)
- * @param {string} action
- * @param {Object} payload
+ * POST — no-cors for submit/save (fire and forget)
  */
-async function aitApiPost(action, payload = {}) {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 20000);
-
+async function aitPost(action, payload = {}) {
   try {
-    const response = await fetch(AIT_CONFIG.SCRIPT_URL, {
+    await fetch(AIT_CONFIG.SCRIPT_URL, {
       method: 'POST',
-      signal: controller.signal,
-      headers: { 'Content-Type': 'application/json' },
+      mode: 'no-cors',
+      headers: { 'Content-Type': 'text/plain' },
       body: JSON.stringify({ action, ...payload }),
-      mode: 'no-cors', // Required for GAS
     });
-
-    clearTimeout(timeout);
-    // no-cors returns opaque response — treat as success
     return { success: true };
   } catch (err) {
-    clearTimeout(timeout);
-    if (err.name === 'AbortError') {
-      throw new Error('Submission timed out. Your answers are saved locally.');
-    }
-    throw err;
+    console.warn('POST error:', err);
+    return { success: false };
   }
 }
 
 /* ============================================================
-   INDIVIDUAL API ACTIONS
+   PUBLIC API — All registration via GET (GAS doGet handles it)
+   Submit/Save via POST (no-cors)
    ============================================================ */
 
-/**
- * Check if email has already registered / attempted the exam
- * @param {string} email
- * @returns {Promise<{exists: boolean, status: string}>}
- */
 async function apiCheckEmail(email) {
-  return aitApiCall('checkEmail', { email: email.trim().toLowerCase() });
+  return aitGet('checkEmail', { email: email.trim().toLowerCase() });
 }
 
-/**
- * Register a new candidate
- * @param {Object} candidateData - { name, email, phone, college, district, course }
- * @returns {Promise<{success: boolean, message: string}>}
- */
-async function apiRegisterCandidate(candidateData) {
-  return aitApiCall('registerCandidate', {
-    name: candidateData.name,
-    email: candidateData.email.toLowerCase(),
-    phone: candidateData.phone,
-    college: candidateData.college,
-    district: candidateData.district,
-    course: candidateData.course,
+async function apiRegisterCandidate(data) {
+  const info = getBrowserInfo();
+  // Use GET so GAS doGet handles it — no CORS issue
+  return aitGet('registerCandidate', {
+    name: data.name,
+    email: data.email.toLowerCase(),
+    phone: data.phone,
+    college: data.college,
+    district: data.district,
+    course: data.course,
     startTime: new Date().toISOString(),
-    browser: getBrowserInfo().browser,
-    os: getBrowserInfo().os,
-    device: getBrowserInfo().device,
+    browser: info.browser,
+    os: info.os,
+    device: info.device,
   });
 }
 
-/**
- * Save exam progress (auto-save)
- * @param {string} email
- * @param {Object} answers - { [qIndex]: selectedOption }
- * @returns {Promise<{success: boolean}>}
- */
 async function apiSaveProgress(email, answers) {
-  return aitApiPost('saveProgress', {
+  return aitPost('saveProgress', {
     email: email.toLowerCase(),
     answers: JSON.stringify(answers),
     savedAt: new Date().toISOString(),
   });
 }
 
-/**
- * Submit final exam answers
- * @param {Object} submissionData
- */
-async function apiSubmitExam(submissionData) {
-  return aitApiPost('submitExam', {
-    ...submissionData,
+async function apiSubmitExam(data) {
+  return aitPost('submitExam', {
+    ...data,
     submittedAt: new Date().toISOString(),
   });
 }
 
-/**
- * Log a suspicious activity / cheat event
- * @param {string} email
- * @param {string} eventType - 'TAB_SWITCH' | 'FULLSCREEN_EXIT' | 'COPY' | 'PASTE' | 'DEVTOOLS' | 'REFRESH'
- * @param {Object} meta - Additional metadata
- */
 async function apiLogCheat(email, eventType, meta = {}) {
   const info = getBrowserInfo();
-  return aitApiPost('logCheat', {
+  return aitPost('logCheat', {
     email: email.toLowerCase(),
     event: eventType,
     timestamp: new Date().toISOString(),
@@ -186,110 +117,55 @@ async function apiLogCheat(email, eventType, meta = {}) {
 }
 
 /* ============================================================
-   BROWSER / DEVICE DETECTION
+   BROWSER DETECTION
    ============================================================ */
-
-/**
- * Get browser, OS, and device type information
- * @returns {{ browser: string, os: string, device: string }}
- */
 function getBrowserInfo() {
   const ua = navigator.userAgent;
-
-  // Browser detection
   let browser = 'Unknown';
   if (ua.includes('Edg/')) browser = 'Microsoft Edge';
-  else if (ua.includes('OPR/') || ua.includes('Opera')) browser = 'Opera';
   else if (ua.includes('Chrome/') && !ua.includes('Chromium')) browser = 'Google Chrome';
   else if (ua.includes('Firefox/')) browser = 'Mozilla Firefox';
   else if (ua.includes('Safari/') && !ua.includes('Chrome')) browser = 'Apple Safari';
-  else if (ua.includes('MSIE') || ua.includes('Trident')) browser = 'Internet Explorer';
 
-  // OS detection
   let os = 'Unknown OS';
   if (ua.includes('Windows NT 10')) os = 'Windows 10/11';
-  else if (ua.includes('Windows NT 6.3')) os = 'Windows 8.1';
-  else if (ua.includes('Windows NT 6.1')) os = 'Windows 7';
   else if (ua.includes('Mac OS X')) os = 'macOS';
-  else if (ua.includes('Android')) os = `Android ${(ua.match(/Android (\d+\.?\d*)/) || [])[1] || ''}`;
+  else if (ua.includes('Android')) os = 'Android';
   else if (ua.includes('iPhone') || ua.includes('iPad')) os = 'iOS';
   else if (ua.includes('Linux')) os = 'Linux';
 
-  // Device type
   let device = 'Desktop';
-  if (/Android|webOS|iPhone|iPod|BlackBerry|IEMobile|Opera Mini/i.test(ua)) device = 'Mobile';
+  if (/Android|iPhone|iPod|BlackBerry|IEMobile/i.test(ua)) device = 'Mobile';
   else if (/iPad|Tablet/i.test(ua)) device = 'Tablet';
 
   return { browser, os, device };
 }
 
 /* ============================================================
-   LOCAL STORAGE HELPERS
+   STORAGE HELPERS
    ============================================================ */
-
-/**
- * Save data to session/local storage safely
- */
 function aitStore(key, value) {
-  try {
-    sessionStorage.setItem(key, JSON.stringify(value));
-  } catch (e) {
-    try {
-      localStorage.setItem(key, JSON.stringify(value));
-    } catch (e2) {
-      console.warn('Storage unavailable:', e2);
-    }
+  try { sessionStorage.setItem(key, JSON.stringify(value)); } catch (e) {
+    try { localStorage.setItem(key, JSON.stringify(value)); } catch (e2) {}
   }
 }
 
-/**
- * Read data from session/local storage safely
- */
 function aitRead(key) {
   try {
-    const val = sessionStorage.getItem(key) || localStorage.getItem(key);
-    return val ? JSON.parse(val) : null;
-  } catch (e) {
-    return null;
-  }
+    const v = sessionStorage.getItem(key) || localStorage.getItem(key);
+    return v ? JSON.parse(v) : null;
+  } catch (e) { return null; }
 }
 
-/**
- * Remove a key from storage
- */
 function aitRemove(key) {
-  try {
-    sessionStorage.removeItem(key);
-    localStorage.removeItem(key);
-  } catch (e) { /* noop */ }
+  try { sessionStorage.removeItem(key); localStorage.removeItem(key); } catch (e) {}
 }
 
-/**
- * Clear all AIT session data
- */
 function aitClearSession() {
-  Object.values(AIT_CONFIG.SESSION_KEYS).forEach(key => aitRemove(key));
+  Object.values(AIT_CONFIG.SESSION_KEYS).forEach(k => aitRemove(k));
 }
-
-/* ============================================================
-   NETWORK STATUS MONITOR
-   ============================================================ */
 
 let isOnline = navigator.onLine;
-
-window.addEventListener('online', () => {
-  isOnline = true;
-  document.dispatchEvent(new CustomEvent('ait:online'));
-});
-
-window.addEventListener('offline', () => {
-  isOnline = false;
-  document.dispatchEvent(new CustomEvent('ait:offline'));
-});
-
-/**
- * Check if network is available
- */
-function checkNetwork() {
-  return isOnline;
-}
+window.addEventListener('online',  () => { isOnline = true;  document.dispatchEvent(new CustomEvent('ait:online'));  });
+window.addEventListener('offline', () => { isOnline = false; document.dispatchEvent(new CustomEvent('ait:offline')); });
+function checkNetwork() { return isOnline; }
