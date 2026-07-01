@@ -19,7 +19,7 @@ class ExamSecurity {
     this.email = options.email || '';
     this.onViolation = options.onViolation || (() => {});
     this.onAutoSubmit = options.onAutoSubmit || (() => {});
-    this.warningLimit = options.warningLimit || 3;
+    this.warningLimit = options.warningLimit || 10;
 
     this._violations = 0;
     this._log = [];
