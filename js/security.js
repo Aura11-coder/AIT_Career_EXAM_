@@ -79,9 +79,11 @@ class ExamSecurity {
     aitStore(AIT_CONFIG.SESSION_KEYS.CHEAT_LOG, [...existing, entry]);
 
     // Non-critical events: just log
-    const nonCritical = ['COPY_ATTEMPT', 'PASTE_ATTEMPT', 'PRINT_ATTEMPT', 'DEVTOOLS_ATTEMPT'];
+    // Only these events increase warning count → auto submit
+    // TAB_SWITCH, WINDOW_BLUR, BACK_BUTTON = log only (no warning)
+    const warningEvents = ['DEVTOOLS_ATTEMPT', 'FULLSCREEN_EXIT', 'REFRESH_ATTEMPT'];
 
-    if (!nonCritical.includes(type)) {
+    if (warningEvents.includes(type)) {
       this._violations++;
       aitStore(AIT_CONFIG.SESSION_KEYS.WARNINGS, this._violations);
       this.onViolation(type, this._violations);
@@ -90,6 +92,7 @@ class ExamSecurity {
         this.onAutoSubmit(type, this._violations);
       }
     }
+    // All other events: just log to sheet, no warning shown
 
     // Report to API (non-blocking)
     if (this.email) {
