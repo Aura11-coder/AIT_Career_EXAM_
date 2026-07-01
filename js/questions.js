@@ -85,7 +85,7 @@ const QUESTION_BANK = [
   {
     id: 12, subject: '💻 Programming',
     text: 'Which HTML tag creates a hyperlink?',
-    options: ['<link>', '<href>', '<a>', '<url>'],
+    options: ['&lt;link&gt;', '&lt;href&gt;', '&lt;a&gt;', '&lt;url&gt;'],
     _c: 'c'
   },
   {
